@@ -608,9 +608,10 @@ class LunaGui:
         # Action Buttons
         acts = tk.Frame(wrap, bg=BG)
         acts.pack(fill="x", pady=(0, 8))
-        self._btn(acts, "웹 리모컨 열기", lambda: webbrowser.open(f"http://localhost:{HTTP_PORT}"), bg=ACCENT, fg=BG).pack(side="left", fill="x", expand=True, padx=(0, 6))
-        self._btn(acts, "새 Wi-Fi 등록", self.open_provision).pack(side="left", fill="x", expand=True, padx=(0, 6))
-        self._btn(acts, "공유기 안내", self.show_guide).pack(side="left", fill="x", expand=True)
+        self._btn(acts, "웹 리모컨", lambda: webbrowser.open(f"http://localhost:{HTTP_PORT}"), bg=ACCENT, fg=BG).pack(side="left", fill="x", expand=True, padx=(0, 4))
+        self._btn(acts, "새 Wi-Fi 등록", self.open_provision).pack(side="left", fill="x", expand=True, padx=(0, 4))
+        self._btn(acts, "공유기 등록(ASUS)", self.open_router_ssh).pack(side="left", fill="x", expand=True, padx=(0, 4))
+        self._btn(acts, "안내", self.show_guide).pack(side="left", fill="x", expand=True)
 
         # Log Console
         log_card = tk.Frame(wrap, bg=CARD, padx=10, pady=8)
@@ -703,6 +704,69 @@ class LunaGui:
                 messagebox.showerror("전송 실패", f"192.168.4.1:8888 연결 실패:\n{ex}\n\nPC Wi-Fi가 GB_DHF2_...에 연결되었는지 확인하세요.", parent=win)
 
         self._btn(f, "가습기로 Wi-Fi 정보 전송", go, bg=ACCENT, fg=BG).pack(fill="x", pady=(14, 0))
+
+    def open_router_ssh(self):
+        win = tk.Toplevel(self.root)
+        win.title("ASUS 공유기 서버 주소 등록")
+        win.geometry("410x340")
+        win.configure(bg=BG)
+        win.resizable(False, False)
+        f = tk.Frame(win, bg=BG, padx=18, pady=14)
+        f.pack(fill="both", expand=True)
+
+        tk.Label(f, text="서버 종류 선택 (PC 서버 vs 모바일 공기계 서버)", font=FONT_B, bg=BG, fg=TEXT).pack(anchor="w", pady=(0, 6))
+        mode = tk.StringVar(value="pc")
+        tabs = tk.Frame(f, bg=BG)
+        tabs.pack(fill="x", pady=(0, 10))
+
+        grid = tk.Frame(f, bg=BG)
+        grid.pack(fill="x")
+        fields = [
+            ("공유기 IP", "192.168.50.1"),
+            ("SSH 포트", "22"),
+            ("관리자 ID", "admin"),
+            ("연결할 서버 IP", self.state.lan_ip),
+        ]
+        entries = {}
+        for idx, (lbl, val) in enumerate(fields):
+            tk.Label(grid, text=lbl, font=FONT_B, bg=BG, fg=TEXT).grid(row=idx, column=0, sticky="w", pady=5)
+            e = tk.Entry(grid, width=25, font=FONT, bg=CARD, fg=TEXT, insertbackground=TEXT, relief="flat", bd=6)
+            e.insert(0, val)
+            e.grid(row=idx, column=1, padx=(10, 0), pady=5)
+            entries[lbl] = e
+
+        def switch_mode(m):
+            mode.set(m)
+            b_pc.config(bg=ACCENT if m == "pc" else BTN, fg=BG if m == "pc" else TEXT)
+            b_mob.config(bg=ACCENT if m == "mob" else BTN, fg=BG if m == "mob" else TEXT)
+            entries["연결할 서버 IP"].delete(0, "end")
+            if m == "pc":
+                entries["연결할 서버 IP"].insert(0, self.state.lan_ip)
+            else:
+                entries["연결할 서버 IP"].insert(0, "192.168.50.")
+                entries["연결할 서버 IP"].focus_set()
+
+        b_pc = self._btn(tabs, "PC 서버 등록", lambda: switch_mode("pc"), bg=ACCENT, fg=BG, pady=6)
+        b_pc.pack(side="left", fill="x", expand=True, padx=(0, 6))
+        b_mob = self._btn(tabs, "모바일(공기계) 서버 등록", lambda: switch_mode("mob"), bg=BTN, fg=TEXT, pady=6)
+        b_mob.pack(side="left", fill="x", expand=True)
+
+        def run_ssh():
+            rip = entries["공유기 IP"].get().strip()
+            port = entries["SSH 포트"].get().strip() or "22"
+            uid = entries["관리자 ID"].get().strip() or "admin"
+            sip = entries["연결할 서버 IP"].get().strip()
+            if not sip or sip.endswith("."):
+                messagebox.showerror("입력 오류", "연결할 서버 IP를 정확히 입력하세요.", parent=win)
+                return
+            remote = f"sed -i '/{TARGET_DOMAIN}/d' /etc/hosts && echo '{sip} {TARGET_DOMAIN}' >> /etc/hosts && killall -HUP dnsmasq && echo DONE_OK"
+            cmd = f'ssh -p {port} {uid}@{rip} "{remote}"'
+            import subprocess
+            subprocess.Popen(["cmd", "/c", "start", "cmd", "/k", f"echo 공유기 비밀번호를 입력하고 Enter를 누르세요 (입력 중엔 안 보입니다) && {cmd}"])
+            self.enqueue_log(f"[공유기 등록] {rip}:{port} -> {TARGET_DOMAIN} = {sip} 실행창 열림")
+            win.destroy()
+
+        self._btn(f, "딸깍! 공유기에 서버 주소 등록", run_ssh, bg=ACCENT, fg=BG).pack(fill="x", pady=(14, 0))
 
     def show_guide(self):
         ip = self.state.lan_ip
